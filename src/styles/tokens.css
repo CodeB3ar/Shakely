@@ -1,0 +1,72 @@
+:root {
+  --bg: #f6f6f6;
+  --ink: #111111;
+  --ink-soft: #6b6b6b;
+  --ink-mute: #8e8e8e;
+  --card: #ffffff;
+  --line: #ebebeb;
+  --chip: #f1f1f1;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.05);
+  --shadow-float: 0 1px 2px rgba(0, 0, 0, 0.04), 0 14px 36px rgba(0, 0, 0, 0.06);
+  --shadow-fab: 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 16px rgba(0, 0, 0, 0.05);
+  --r-pill: 22px;
+  --r-lg: 32px;
+  --r-xl: 40px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Geist', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
+  scroll-behavior: smooth;
+}
+
+button, a, input { font-family: inherit; }
+button, a { cursor: pointer; }
+button:focus-visible, a:focus-visible, input:focus-visible {
+  outline: 2px solid #111;
+  outline-offset: 2px;
+}
+input::placeholder { color: #767676; }
+
+.sticker {
+  display: block;
+  position: absolute;
+  line-height: 1;
+  user-select: none;
+  filter: drop-shadow(2px 0 0 #fff) drop-shadow(-2px 0 0 #fff) drop-shadow(0 2px 0 #fff)
+    drop-shadow(0 -2px 0 #fff) drop-shadow(0 12px 14px rgba(0, 0, 0, 0.14));
+  animation: bob 5s ease-in-out infinite;
+}
+@keyframes bob {
+  0%, 100% { transform: translateY(0) rotate(var(--r, 0deg)); }
+  50% { transform: translateY(-9px) rotate(var(--r, 0deg)); }
+}
+.stk-s {
+  filter: drop-shadow(2px 0 0 #fff) drop-shadow(-2px 0 0 #fff) drop-shadow(0 2px 0 #fff)
+    drop-shadow(0 -2px 0 #fff) drop-shadow(0 6px 8px rgba(0, 0, 0, 0.12));
+}
+
+.navlink { color: var(--ink-soft); background: none; border: none; text-decoration: none; }
+.navlink:hover { color: var(--ink); }
+.navlink.active {
+  color: var(--ink);
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sticker { animation: none; transform: rotate(var(--r, 0deg)); }
+  body { scroll-behavior: auto; }
+}
+
+input[type='range'] {
+  accent-color: #111111;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  cursor: pointer;
+}
