@@ -1,83 +1,116 @@
+// One shared store. Every screen reads the same state; browser profile
+// persists under src/state/profile.ts rules (try/catch, migrate on read).
+// Filter chips are NOT in the store — Browse filters live in the URL.
+// `results` is the current results list for Next shake: session scope
+// (sessionStorage so a reload keeps it), never persisted to the profile.
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage } from 'zustand/middleware'
+import { importLegacyProfiles, migrateProfile, PROFILE_KEY, safeStorage, defaultProfile, type Profile, type Goal, type Saved, type Edit } from './profile'
+import type { Level } from './levels'
 
-export type Level = 0 | 1 | 2
+export type { Level } from './levels'
+export type { Goal, Saved, Profile, Edit } from './profile'
 
-export const LEVELS: { label: string; time: string }[] = [
-  { label: 'Quick', time: '2m' },
-  { label: 'Loaded', time: '5m' },
-  { label: 'Athlete', time: '8m' },
-]
-
-interface BlendState {
+interface State {
   level: Level
-  chips: Record<string, boolean>
+  goal: Goal
+  diet: string[]
   pantry: string[]
-  saved: Record<string, true> | Record<string, string>
-  setLevel: (l: Level) => void
-  toggleChip: (c: string) => void
-  clearChips: () => void
-  toggleSave: (id: string) => void
+  saved: Saved[]
+  results: number[] | null
+  setLevel: (lv: Level) => void
+  setResults: (ids: number[]) => void
+  toggleSave: (recipeId: number) => void
+  saveRecipe: (recipeId: number, patch: { level: Level; serves: number; edits?: Edit[] }) => void
+  unsave: (recipeId: number) => void
+  restoreSaved: (entry: Saved) => void
+  setGoal: (g: Goal) => void
+  toggleDiet: (tag: string) => void
+  togglePantry: (id: string) => void
+  clearPantry: () => void
 }
 
-export type FilterKey = 'p20' | 'k300' | 'green' | 'dairy' | 'vegan' | 'nut' | 'workout' | 'peanut'
-
-// Home chips + Browse sidebar filters, one shared source of truth
-export const GOAL_FILTERS: { id: FilterKey; label: string }[] = [
-  { id: 'p20', label: '20g protein' },
-  { id: 'k300', label: 'Under 300 kcal' },
-  { id: 'green', label: 'Green' },
-]
-
-export const DIET_FILTERS: { id: FilterKey; label: string }[] = [
-  { id: 'dairy', label: 'Dairy-free' },
-  { id: 'vegan', label: 'Vegan' },
-  { id: 'nut', label: 'Nut-free' },
-]
-
-export const HOME_FILTERS: FilterKey[] = ['p20', 'k300', 'green', 'dairy', 'workout', 'peanut']
-
-export const FILTER_LABELS: Record<FilterKey, string> = {
-  p20: '20g protein',
-  k300: 'Under 300 kcal',
-  green: 'Green',
-  dairy: 'Dairy-free',
-  vegan: 'Vegan',
-  nut: 'Nut-free',
-  workout: 'Post-workout',
-  peanut: 'Peanut butter',
+// Import foreign-key legacy profiles once, before persist rehydrates.
+export function initLegacyMigration(): void {
+  importLegacyProfiles()
 }
 
-export function migrateLegacyPersistence(): void {
-  if (typeof window === 'undefined') return
-  if (window.localStorage.getItem('shakely-v1')) return
-  const legacy = window.localStorage.getItem('blendr-v1')
-  if (!legacy) return
-  window.localStorage.removeItem('blendr-v1')
+const persisted = (s: State): Pick<State, 'level' | 'goal' | 'diet' | 'pantry' | 'saved'> => ({
+  level: s.level,
+  goal: s.goal,
+  diet: s.diet,
+  pantry: s.pantry,
+  saved: s.saved,
+})
+
+const RESULTS_KEY = 'shakely.results'
+
+function loadResults(): number[] | null {
   try {
-    window.localStorage.setItem('shakely-v1', legacy)
-  } catch { /* storage unavailable — legacy key is removed either way */ }
+    const raw = sessionStorage.getItem(RESULTS_KEY)
+    if (!raw) return null
+    const arr = JSON.parse(raw)
+    return Array.isArray(arr) && arr.every((n) => Number.isInteger(n)) ? (arr as number[]) : null
+  } catch {
+    return null
+  }
 }
-migrateLegacyPersistence()
 
-export const useBlend = create<BlendState>()(
+function storeResults(ids: number[]): void {
+  try {
+    sessionStorage.setItem(RESULTS_KEY, JSON.stringify(ids))
+  } catch {
+    // session storage unavailable — results still live in memory
+  }
+}
+
+export const useBlend = create<State>()(
   persist(
     (set) => ({
       level: 0,
-      chips: {},
+      goal: 'build',
+      diet: [],
       pantry: [],
-      saved: {},
+      saved: [],
+      results: loadResults(),
       setLevel: (level) => set({ level }),
-      toggleChip: (c) => set((s) => ({ chips: { ...s.chips, [c]: !s.chips[c] } })),
-      clearChips: () => set({ chips: {} }),
-      toggleSave: (id) =>
+      setResults: (results) => {
+        storeResults(results)
+        set({ results })
+      },
+      toggleSave: (recipeId) =>
         set((s) => {
-          const next = { ...s.saved }
-          if (next[id]) delete next[id]
-          else next[id] = new Date().toISOString()
-          return { saved: next }
+          const found = s.saved.find((x) => x.recipeId === recipeId)
+          return { saved: found ? s.saved.filter((x) => x.recipeId !== recipeId) : [...s.saved, { recipeId, level: s.level, serves: 1, savedAt: Date.now() }] }
         }),
+      saveRecipe: (recipeId, patch) =>
+        set((s) => {
+          const rest = s.saved.filter((x) => x.recipeId !== recipeId)
+          return {
+            saved: [...rest, { recipeId, level: patch.level, serves: patch.serves, savedAt: Date.now(), ...(patch.edits && patch.edits.length ? { edits: patch.edits } : {}) }],
+          }
+        }),
+      unsave: (recipeId) => set((s) => ({ saved: s.saved.filter((x) => x.recipeId !== recipeId) })),
+      restoreSaved: (entry) =>
+        set((s) => ({ saved: [...s.saved.filter((x) => x.recipeId !== entry.recipeId), entry] })),
+      setGoal: (goal) => set({ goal }),
+      toggleDiet: (tag) => set((s) => ({ diet: s.diet.includes(tag) ? s.diet.filter((t) => t !== tag) : [...s.diet, tag] })),
+      togglePantry: (id) => set((s) => ({ pantry: s.pantry.includes(id) ? s.pantry.filter((x) => x !== id) : [...s.pantry, id] })),
+      clearPantry: () => set({ pantry: [] }),
     }),
-    { name: 'shakely-v1' },
+    {
+      name: PROFILE_KEY,
+      version: 1,
+      storage: createJSONStorage(() => safeStorage),
+      partialize: persisted as unknown as (s: State) => Pick<State, 'level' | 'goal' | 'diet' | 'pantry' | 'saved'>,
+      migrate: migrateProfile,
+      merge: (persistedState, current) => ({
+        ...current,
+        ...migrateProfile(persistedState),
+      }),
+    },
   ),
 )
+
+export { defaultProfile }
+export type { Profile as ProfileShape }
